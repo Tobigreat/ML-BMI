@@ -1,0 +1,270 @@
+## The code was written in R 
+
+
+#loading of the dataset 
+obesity_data <- read.csv("C:/Users/E7490/Desktop/Dataobesity.csv")
+glimpse(obesity_data)
+-----------------------------------
+EDA
+-----------------------------------
+#Checking for missing values within the dataset 
+obesity_data <- colSums(is.na(obesity_data)) #to check if there is a missing value in the columns 
+obesity_data
+
+
+# create BMI feature
+obesity_data <- obesity_data%>% mutate(BMI = Weight / (Height^2))
+glimpse(obesity_data)
+# Distribution of numerical features
+num_obesity_data <- c("Age", "Height", "Weight", "BMI")
+num_plots <- list()
+
+for (var in num_obesity_data) {
+  num_plots[[var]] <- ggplot(obesity_data, aes_string(x = var)) +
+    geom_histogram(fill = "skyblue", bins = 30) +
+    geom_density(aes(y = ..count..), color = "darkblue") +
+    labs(title = paste("Distribution of N.Features", var))
+}
+
+wrap_plots(num_plots) + plot_layout(ncol = 2)
+
+#BMI chart
+ggplot(obesity_data, aes(x=BMI)) +
+  geom_histogram(bin = 20) +
+  ggtitle("BMI Distribution")
+
+#Age vs BMI colored by obesity class
+ggplot(obesity_data, aes(x = Age, y = BMI, color = Obesity_level)) +
+  geom_point() +
+  labs(title = "Age vs BMI Colored by Obesity Class", 
+       x = "Age", 
+       y = "BMI", 
+       color = "Obesity Level") +
+  theme_minimal()
+
+# Correlation matrix (numeric variables)
+ggpairs(obesity_data %>% select(all_of(num_obesity_data), BMI),
+        upper = list(continuous = wrap("cor", size = 3)),
+        lower = list(continuous = wrap("smooth", alpha = 0.3)))
+
+print(describe(obesity_data %>% select(all_of(num_obesity_data), BMI)))
+
+num_obesity <- c("Age", "Height", "Weight", "BMI","FCVC","NCP","CH2O","FAF", "TUE")
+
+mean_obesity 
+mean_obesity <- obesity_data %>%
+  select(all_of(num_obesity)) %>%  # Select numeric columns
+  summarise(across(everything(), sd, na.rm = TRUE))  # Compute mean for each column
+
+print(describe(obesity_data %>% select(all_of(num_obesity), BMI)))
+
+#Evaluation of Distribution = Skewness 
+obesity_data %>% summarise(skewness_Age = skewness(Age),
+                      skewness_Height = skewness(Height),
+                      skewness_Weight = skewness(Weight),
+                      skewness_BMI = skewness(BMI))
+
+#correlation Analysis 
+correlation_matrix <- obesity_data %>%
+  select(Age, Height, Weight, BMI) %>%
+  cor()
+
+# correlation matrix to long format using pivot_longer
+correlation_long <- as.data.frame(correlation_matrix) %>%
+  pivot_longer(cols = everything(),names_to = "Variable",values_to = "Correlation") %>%
+  mutate(Feature = rownames(.))
+
+#Plotting the correlation matrix
+ggplot(correlation_long, aes(x=Feature, y=Variable, fill = Correlation)) +
+  geom_tile () +
+  scale_fill_gradient2(low = "blue",high = "red", mid = "white", midpoint = 0) +
+  theme_minimal () +
+  ggtitle("Correlation_matrix for Numerical Variables")
+
+# Plot Transpotation and Obesity level 
+ggplot(obesity_data, aes(x = Transportation, fill = Obesity_level)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Transportation Mode vs Obesity Class") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# List of categorical variables
+categorical_vars <- c("Gender", "family_history_with_overweight", "FAVC", "CAEC", "SMOKE", "SCC", "CALC", "Transportation", "Obesity_level")
+
+# Generate frequency distribution
+for (var in categorical_vars) {
+  cat("\nFrequency distribution for", var, ":\n")
+  print(table(obesity_data[[var]]))  # Count occurrences
+}
+#percentage 
+for (var in categorical_vars) {
+  cat("\nFrequency distribution for", var, ":\n")
+  print(round(prop.table(table(obesity_data[[var]])) * 100, 2))  # Round to 2 decimal places
+}
+
+#viz 
+library(ggplot2)
+
+for (var in categorical_vars) {
+  print(
+    ggplot(obesity_data, aes_string(x = var)) +
+      geom_bar(fill = "skyblue") +
+      ggtitle(paste("Frequency Distribution of", var)) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels for readability
+  )
+}
+
+#ML model 
+
+# Identifying important features using Random forest 
+obesity_data$Obesity_level <- as.factor(obesity_data$Obesity_level)
+rf_model <- randomForest(Obesity_level ~ ., data =obesity_data)
+importance(rf_model)
+
+#Removing 
+obesity <- obesity_data %>% select(-SMOKE, -SCC,)
+glimpse(obesity)
+
+# group all categorical variables 
+cat_obesity_data <- c("Gender","family_history_with_overweight","FAVC","CAEC",
+"CALC","Transportation","Obesity_level")
+# Convert to factors 
+obesity_data[cat_obesity_data] <- lapply(obesity_data[cat_obesity_data], factor)
+glimpse(obesity_data[cat_obesity_data])
+
+#Splitting of the data 
+set.seed(234)
+train_index <- createDataPartition(obesity_data$Obesity_level, p = 0.8, list = FALSE)
+train_obesity <- obesity_data[train_index, ]
+test_obesity <- obesity_data[-train_index, ]
+
+#build the model 
+dt_model <- rpart(Obesity_level ~ ., data = train_obesity, method = "class")
+# Visualize the Decision Tree
+rpart.plot(dt_model)
+
+# Predict on Test Data/Evaulate 
+dt_predictions <- predict(dt_model, test_obesity, type = "class")
+dt_predictions
+# Confusion Matrix
+confusionMatrix(dt_predictions, test_obesity$Obesity_level)
+
+---------------------------------------------------------
+#Random Forest 
+---------------------------------------------------------
+set.seed(234)
+train_index <- createDataPartition(obesity_data$Obesity_level, p = 0.8, list = FALSE)
+train_obesity <- obesity_data[train_index, ]
+test_obesity <- obesity_data[-train_index, ]
+#Build a model RF
+rf_model <- randomForest(Obesity_level ~ ., data = train_obesity, ntree = 100, mtry = 3, importance = TRUE)
+
+# Check Model Summary
+print(rf_model)
+
+# Predict on Test Data
+rf_predictions <- predict(rf_model, test_obesity)
+
+# Confusion Matrix
+confusionMatrix(rf_predictions, test_obesity$Obesity_level)
+
+rf_conf_matrix <- confusionMatrix(rf_predictions, test_obesity$Obesity_level)
+
+rf_metrics <- rf_conf_matrix$byClass
+
+print("Random Forest Model Metrics:")
+print(paste("Precision:", rf_metrics["Precision"]))
+print(paste("Recall:", rf_metrics["Sensitivity"]))
+print(paste("F1-score:", rf_metrics["F1"]))
+
+
+mean_precision <- mean(rf_metrics[, "Precision"], na.rm = TRUE)
+mean_recall <- mean(rf_metrics[, "Sensitivity"], na.rm = TRUE)
+mean_f1 <- mean(rf_metrics[, "F1"], na.rm = TRUE)
+
+print(paste("Macro-averaged Precision:", mean_precision))
+print(paste("Macro-averaged Recall:", mean_recall))
+print(paste("Macro-averaged F1-score:", mean_f1))
+
+
+
+-------------------------------------------------
+#SVM
+-------------------------------------------------
+set.seed(234)
+train_index <- createDataPartition(obesity_data$Obesity_level, p = 0.8, list = FALSE)
+train_obesity <- obesity_data[train_index, ]
+test_obesity <- obesity_data[-train_index, ]
+
+# Train SVM model
+svm_model <- train(Obesity_level ~ ., data = train_obesity, method = "svmRadial",
+                   trControl = trainControl(method = "cv", number = 10),
+                   preProcess = c("center", "scale"),
+                   tuneLength = 5)
+
+# Predict on test set
+svm_pred <- predict(svm_model, test_obesity)
+
+# Evaluate models
+svm_conf_matrix <- confusionMatrix(svm_pred, test_obesity$Obesity_level)
+
+print("SVM Model Performance:")
+print(svm_conf_matrix)
+
+
+# Extract metrics from the confusion matrix
+precision <- svm_conf_matrix$byClass[,"Pos Pred Value"]
+recall <- svm_conf_matrix$byClass[,"Sensitivity"]  # same as recall
+specificity <- svm_conf_matrix$byClass[,"Specificity"]
+f1 <- svm_conf_matrix$byClass[,"F1"]
+
+# Print all metrics
+print("Precision:")
+print(precision)
+
+print("Recall/Sensitivity:")
+print(recall)
+
+print("Specificity:")
+print(specificity)
+
+print("F1-score:")
+print(f1)
+
+# For macro-averaged metrics (averaging across classes)
+print(paste("Macro-average Precision:", mean(precision, na.rm = TRUE)))
+print(paste("Macro-average Recall:", mean(recall, na.rm = TRUE)))
+print(paste("Macro-average F1-score:", mean(f1, na.rm = TRUE)))
+
+------------------------------------------------
+#Naive Bayes
+------------------------------------------------
+set.seed(234)
+train_index <- createDataPartition(obesity_data$Obesity_level, p = 0.8, list = FALSE)
+train_obesity <- obesity_data[train_index, ]
+test_obesity <- obesity_data[-train_index, ]
+
+# Train Naive Bayes model
+nb_model <- train(Obesity_level ~ ., data = train_obesity, method = "naive_bayes",
+                  trControl = trainControl(method = "cv", number = 10))
+
+# Predict on test set
+nb_pred <- predict(nb_model, test_obesity)
+
+# Evaluate models
+nb_conf_matrix <- confusionMatrix(nb_pred, test_obesity$Obesity_level)
+
+print("Naïve Bayes Model Performance:")
+print(nb_conf_matrix)
+
+# Extract metrics from confusion matrix
+precision <- nb_conf_matrix$byClass[ , "Pos Pred Value"]
+recall <- nb_conf_matrix$byClass[ , "Sensitivity"]
+f1 <- 2 * (precision * recall) / (precision + recall)
+
+# Print class-wise metrics
+data.frame(Precision = precision, Recall = recall, F1_Score = f1)
+
+# Macro-averaged metrics
+cat("Macro-Precision:", mean(precision, na.rm = TRUE), "\n")
+cat("Macro-Recall:", mean(recall, na.rm = TRUE), "\n")
+cat("Macro-F1:", mean(f1, na.rm = TRUE), "\n")
